@@ -13,19 +13,19 @@ struct AddBookView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
 
-    @State private var bookTitle: String = ""
     @State private var audioURL: String = ""
     @State private var coverImageURL: String = ""
     @State private var isLoading = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var showTitlePrompt = false
+    @State private var extractedTitle: String = ""
+    @State private var pendingBookData: (filePath: String, coverData: Data?, duration: Double, chapters: [Chapter])?
 
     var body: some View {
         NavigationView {
             Form {
                 Section(header: Text("Book Information")) {
-                    TextField("Book Title", text: $bookTitle)
-
                     TextField("Audio URL", text: $audioURL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
@@ -49,7 +49,7 @@ struct AddBookView: View {
                             Text("Add Book")
                         }
                     }
-                    .disabled(bookTitle.isEmpty || audioURL.isEmpty || isLoading)
+                    .disabled(audioURL.isEmpty || isLoading)
                 }
             }
             .navigationTitle("Add Audiobook")
@@ -66,16 +66,27 @@ struct AddBookView: View {
             } message: {
                 Text(errorMessage)
             }
+            .alert("Enter Book Title", isPresented: $showTitlePrompt) {
+                TextField("Book Title", text: $extractedTitle)
+                Button("OK") {
+                    finishAddingBook()
+                }
+                Button("Cancel", role: .cancel) {
+                    extractedTitle = "unknown"
+                    finishAddingBook()
+                }
+            } message: {
+                Text("Unable to extract book title from metadata. Please enter a title for this audiobook.")
+            }
         }
     }
 
     private func addBook() {
-        guard !bookTitle.isEmpty, !audioURL.isEmpty else { return }
+        guard !audioURL.isEmpty else { return }
 
         isLoading = true
 
         Task {
-            // Convert sharing URLs to direct download URLs
             let directAudioURL = convertToDirectURL(audioURL)
             let directCoverURL = coverImageURL.isEmpty ? "" : convertToDirectURL(coverImageURL)
 
@@ -102,7 +113,6 @@ struct AddBookView: View {
 
             var coverData: Data?
 
-            // If no cover URL provided, try to extract from downloaded file
             if directCoverURL.isEmpty {
                 coverData = await extractCoverArtFromLocalFile(filePath: filePath)
             } else {
@@ -111,28 +121,45 @@ struct AddBookView: View {
                 }
             }
 
-            // Get audio duration and chapters from local file
             let duration = await getAudioDurationFromLocalFile(filePath: filePath)
             let chapters = await extractChaptersFromLocalFile(filePath: filePath)
+            let title = await extractTitleFromLocalFile(filePath: filePath)
 
             await MainActor.run {
-                let newBook = Audiobook(
-                    title: bookTitle,
-                    coverImageURL: directCoverURL.isEmpty ? nil : directCoverURL,
-                    coverImageData: coverData,
-                    audioURL: directAudioURL,
-                    localFilePath: filePath,
-                    currentPosition: 0,
-                    duration: duration,
-                    chapters: chapters
-                )
-
-                modelContext.insert(newBook)
-
+                pendingBookData = (filePath: filePath, coverData: coverData, duration: duration, chapters: chapters)
                 isLoading = false
-                dismiss()
+                if let title = title, !title.isEmpty {
+                    extractedTitle = title
+                    finishAddingBook()
+                } else {
+                    extractedTitle = ""
+                    showTitlePrompt = true
+                }
             }
         }
+    }
+
+    private func finishAddingBook() {
+        guard let data = pendingBookData, !extractedTitle.isEmpty else { return }
+
+        let directAudioURL = convertToDirectURL(audioURL)
+        let directCoverURL = coverImageURL.isEmpty ? "" : convertToDirectURL(coverImageURL)
+
+        let newBook = Audiobook(
+            title: extractedTitle,
+            coverImageURL: directCoverURL.isEmpty ? nil : directCoverURL,
+            coverImageData: data.coverData,
+            audioURL: directAudioURL,
+            localFilePath: data.filePath,
+            currentPosition: 0,
+            duration: data.duration,
+            chapters: data.chapters
+        )
+
+        modelContext.insert(newBook)
+        pendingBookData = nil
+        extractedTitle = ""
+        dismiss()
     }
 
     private func downloadFile(from url: URL) async -> String? {
@@ -145,10 +172,8 @@ struct AddBookView: View {
             let filename = "\(UUID().uuidString).\(fileExtension)"
             let destinationURL = documentsPath.appendingPathComponent(filename)
 
-            // Move the downloaded file to permanent location
             try FileManager.default.moveItem(at: tempURL, to: destinationURL)
 
-            // Return only the filename, not the full path
             return filename
         } catch {
             print("Error downloading file: \(error)")
@@ -272,6 +297,28 @@ struct AddBookView: View {
             // On error, try to generate synthetic chapters
             return await generateSyntheticChapters(filePath: filePath)
         }
+    }
+
+    private func extractTitleFromLocalFile(filePath: String) async -> String? {
+        let documentsPath = FileManager.documentsDirectory
+        let url = documentsPath.appendingPathComponent(filePath)
+
+        do {
+            let asset = AVAsset(url: url)
+            let metadata = try await asset.load(.metadata)
+
+            for item in metadata {
+                if let key = item.commonKey, key.rawValue == "title" {
+                    if let title = try await item.load(.stringValue) {
+                        return title
+                    }
+                }
+            }
+        } catch {
+            print("Error extracting title: \(error)")
+        }
+
+        return nil
     }
 
     private func generateSyntheticChapters(filePath: String) async -> [Chapter] {
