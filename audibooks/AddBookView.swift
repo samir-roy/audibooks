@@ -331,6 +331,7 @@ struct AddBookView: View {
         }
 
         let chapterInterval: Double = 1800 // 30 minutes in seconds
+        let totalChapters = Int(ceil(totalDuration / chapterInterval))
         var chapters: [Chapter] = []
 
         var currentTime: Double = 0
@@ -341,7 +342,7 @@ struct AddBookView: View {
             let chapterDuration = min(chapterInterval, remainingTime)
 
             let chapter = Chapter(
-                title: "Chapter \(chapterNumber)",
+                title: "\(chapterNumber) of \(totalChapters)",
                 startTime: currentTime,
                 duration: chapterDuration
             )

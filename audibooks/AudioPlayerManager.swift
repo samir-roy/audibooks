@@ -62,15 +62,15 @@ class AudioPlayerManager: NSObject, ObservableObject {
         var nowPlayingInfo = [String: Any]()
 
         // Title and metadata
-        nowPlayingInfo[MPMediaItemPropertyTitle] = audiobook.title
-        nowPlayingInfo[MPMediaItemPropertyMediaType] = MPMediaType.audioBook.rawValue
-
-        // Chapter info if available
         if let chapter = currentChapter {
-            nowPlayingInfo[MPMediaItemPropertyAlbumTitle] = chapter.title
+            nowPlayingInfo[MPMediaItemPropertyTitle] = chapter.title
+            nowPlayingInfo[MPMediaItemPropertyArtist] = audiobook.title
+        } else {
+            nowPlayingInfo[MPMediaItemPropertyTitle] = audiobook.title
         }
 
         // Playback info
+        nowPlayingInfo[MPMediaItemPropertyMediaType] = MPMediaType.audioBook.rawValue
         nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = duration
         nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = currentTime
         nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? playbackSpeed : 0.0
