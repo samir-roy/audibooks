@@ -223,6 +223,39 @@ class AudioPlayerManager: NSObject, ObservableObject {
         self.modelContext = context
     }
 
+    func stopAndClearPlayer() {
+        // Stop playback
+        if isPlaying {
+            audioPlayer?.stop()
+            isPlaying = false
+        }
+
+        // Invalidate all timers
+        stopTimer()
+        saveTimer?.invalidate()
+        saveTimer = nil
+        sleepTimer?.invalidate()
+        sleepTimer = nil
+        chapterBoundaryTimer?.invalidate()
+        chapterBoundaryTimer = nil
+
+        // Clear sleep timer state
+        sleepTimerEndTime = nil
+        sleepTimerRemaining = nil
+        sleepTimerType = .minutes(0)
+
+        // Clear player and state
+        audioPlayer = nil
+        currentAudiobook = nil
+        currentChapter = nil
+        currentTime = 0
+        duration = 0
+        playbackError = nil
+
+        // Clear Now Playing info
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+
     func pauseUIUpdates() {
         isUIUpdatesPaused = true
         stopTimer(forBackground: true)

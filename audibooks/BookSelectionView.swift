@@ -18,6 +18,7 @@ struct BookSelectionView: View {
 
     @State private var bookToDelete: Audiobook?
     @State private var showingLocalAddBook = false
+    @State private var deletionError: String?
 
     private var sortedAudiobooks: [Audiobook] {
         audiobooks.sorted { book1, book2 in
@@ -78,25 +79,41 @@ struct BookSelectionView: View {
         .sheet(isPresented: $showingLocalAddBook) {
             AddBookView()
         }
+        .alert("Delete Failed", isPresented: .constant(deletionError != nil)) {
+            Button("OK") {
+                deletionError = nil
+            }
+        } message: {
+            if let error = deletionError {
+                Text(error)
+            }
+        }
     }
 
     private func deleteAudiobook(_ audiobook: Audiobook) {
-        // If the deleted book is currently playing, stop it
         if playerManager.currentAudiobook?.id == audiobook.id {
-            playerManager.currentAudiobook = nil
-            playerManager.isPlaying = false
-            playerManager.currentTime = 0
-            playerManager.duration = 0
+            playerManager.stopAndClearPlayer()
         }
 
         // Delete the downloaded file
+        var fileDeletedSuccessfully = true
         if let filename = audiobook.localFilePath {
             let documentsPath = FileManager.documentsDirectory
             let fileURL = documentsPath.appendingPathComponent(filename)
-            try? FileManager.default.removeItem(at: fileURL)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                do {
+                    try FileManager.default.removeItem(at: fileURL)
+                } catch {
+                    print("Error deleting file: \(error)")
+                    fileDeletedSuccessfully = false
+                    deletionError = "Could not delete the audio file. Please try again or manually remove it from storage."
+                }
+            }
         }
 
-        modelContext.delete(audiobook)
+        if fileDeletedSuccessfully {
+            modelContext.delete(audiobook)
+        }
     }
 }
 
